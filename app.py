@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 # === 1. 頁面設定 ===
 st.set_page_config(page_title="士電牌價查詢系統", layout="wide")
 
-# === CSS: 介面優化 ===
+# === CSS: 介面優化 (隱藏浮水印 + 介面微調) ===
 st.markdown("""
 <style>
 /* 隱藏預設選單與頁尾 */
@@ -23,6 +23,10 @@ st.markdown("""
 footer {visibility: hidden;}
 header {visibility: hidden;}
 [data-testid="stElementToolbar"] { display: none; }
+
+/* 隱藏右下角 "Manage app" 按鈕 */
+.stAppDeployButton {display: none;}
+[data-testid="stManageAppButton"] {display: none;}
 
 /* 強制表格標頭 (Header) 置中 */
 th {
@@ -235,15 +239,19 @@ def main_app():
 
             tab1, tab2 = st.tabs(["會員登入", "忘記密碼"])
             
+            # === 🔥 新增：從網址取得 Email 預設值 ===
+            # 例如：https://xxx.streamlit.app/?email=abc@gmail.com
+            # 這樣打開網頁時，Email 欄位就會自動填入 abc@gmail.com
+            default_email = st.query_params.get("email", "")
+
             with tab1:
                 with st.form("login_form"):
-                    input_email = st.text_input("Email")
+                    # 將取得的 default_email 設為 value
+                    input_email = st.text_input("Email", value=default_email)
                     input_pass = st.text_input("密碼", type="password")
-                    # 使用 use_container_width讓按鈕變寬，更好按
                     submitted = st.form_submit_button("登入", use_container_width=True)
                     
                     if submitted:
-                        # === 🔥 關鍵修改：加入轉圈圈動畫 ===
                         with st.spinner("正在驗證身分，請稍候..."):
                             success, result = login(input_email, input_pass)
                             if success:
@@ -260,12 +268,12 @@ def main_app():
             with tab2:
                 st.caption("系統將發送新密碼至您的 Email")
                 with st.form("reset_form"):
-                    reset_email = st.text_input("請輸入註冊 Email")
+                    reset_email = st.text_input("請輸入註冊 Email", value=default_email) # 這裡也順便預設
                     reset_submit = st.form_submit_button("發送重置信", use_container_width=True)
                     
                     if reset_submit:
                         if reset_email:
-                            with st.spinner("系統處理中，請稍候..."): # 這裡也加一個比較保險
+                            with st.spinner("系統處理中，請稍候..."):
                                 success, msg = reset_password_flow(reset_email)
                                 if success:
                                     st.success(msg)
