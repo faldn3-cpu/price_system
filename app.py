@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 # === 1. 頁面設定 ===
 st.set_page_config(page_title="士電牌價查詢系統", layout="wide")
 
-# === CSS: 介面優化 (隱藏浮水印 + 介面微調) ===
+# === CSS: 介面優化 (隱藏浮水印 + 樣式調整) ===
 st.markdown("""
 <style>
 /* 隱藏預設選單與頁尾 */
@@ -36,6 +36,13 @@ th {
 /* 調整搜尋框的大小與字體 */
 input[type="text"] {
     font-size: 1.2rem;
+}
+
+/* 日期顯示的樣式 */
+.update-date {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 20px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -145,6 +152,21 @@ def send_reset_email(to_email, new_password):
     except Exception as e:
         return False, "寄信失敗，請稍後再試。"
 
+# === [新增] 讀取更新日期函式 ===
+@st.cache_data(ttl=600)
+def get_update_date():
+    """讀取 Users 分頁 D1 儲存格的日期"""
+    client = get_client()
+    if not client: return ""
+    try:
+        sh = client.open(GOOGLE_SHEET_NAME)
+        ws = sh.worksheet("Users")
+        # 讀取 D1 儲存格 (Row 1, Col 4)
+        date_val = ws.cell(1, 4).value
+        return date_val if date_val else "未知"
+    except:
+        return "未知"
+
 # === 業務邏輯 ===
 def login(email, password):
     client = get_client()
@@ -239,14 +261,11 @@ def main_app():
 
             tab1, tab2 = st.tabs(["會員登入", "忘記密碼"])
             
-            # === 🔥 新增：從網址取得 Email 預設值 ===
-            # 例如：https://xxx.streamlit.app/?email=abc@gmail.com
-            # 這樣打開網頁時，Email 欄位就會自動填入 abc@gmail.com
+            # 從網址取得 Email
             default_email = st.query_params.get("email", "")
 
             with tab1:
                 with st.form("login_form"):
-                    # 將取得的 default_email 設為 value
                     input_email = st.text_input("Email", value=default_email)
                     input_pass = st.text_input("密碼", type="password")
                     submitted = st.form_submit_button("登入", use_container_width=True)
@@ -268,7 +287,7 @@ def main_app():
             with tab2:
                 st.caption("系統將發送新密碼至您的 Email")
                 with st.form("reset_form"):
-                    reset_email = st.text_input("請輸入註冊 Email", value=default_email) # 這裡也順便預設
+                    reset_email = st.text_input("請輸入註冊 Email", value=default_email)
                     reset_submit = st.form_submit_button("發送重置信", use_container_width=True)
                     
                     if reset_submit:
@@ -307,7 +326,15 @@ def main_app():
             st.rerun()
 
     # --- 主查詢介面 ---
+    
+    # 1. 顯示大標題
     st.title("🔍 士林電機FA 2026年經銷牌價查詢系統")
+    
+    # 2. [新增] 顯示資料庫更新日期 (讀取 Users D1)
+    update_date = get_update_date()
+    if update_date:
+        st.caption(f"📅 資料庫最後更新：{update_date}")
+    
     st.markdown("---")
 
     df = load_data()
@@ -315,8 +342,10 @@ def main_app():
     if not df.empty:
         search_term = st.text_input("輸入關鍵字搜尋", "", placeholder="例如: FX5U / SDC / 馬達")
         
+        # [修改] 移除所有複雜邏輯，只保留最單純的字串搜尋
         display_df = df.copy()
         if search_term:
+            # 簡單暴力的搜尋：只要 NO. / 規格 / 說明 裡面有這個字，就抓出來
             valid_search = [c for c in SEARCH_COLS if c in display_df.columns]
             mask = display_df[valid_search].apply(lambda x: x.str.contains(search_term, case=False, na=False)).any(axis=1)
             display_df = display_df[mask]
