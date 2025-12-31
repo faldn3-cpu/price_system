@@ -12,10 +12,10 @@ import string
 import time
 from datetime import datetime, timezone, timedelta
 
-# === 1. 頁面設定 (更新：瀏覽器標籤名稱) ===
+# === 1. 頁面設定 ===
 st.set_page_config(page_title="士電牌價查詢系統", layout="wide")
 
-# === CSS: 介面優化 (加大字體 + 標題置中) ===
+# === CSS: 介面優化 ===
 st.markdown("""
 <style>
 /* 隱藏預設選單與頁尾 */
@@ -227,7 +227,6 @@ def main_app():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown("<br><br>", unsafe_allow_html=True)
-            # 這裡顯示在頁面中間的大標題
             st.header("🔒 士林電機FA 2026年經銷牌價查詢系統")
             
             if st.session_state.login_attempts >= 3:
@@ -240,20 +239,23 @@ def main_app():
                 with st.form("login_form"):
                     input_email = st.text_input("Email")
                     input_pass = st.text_input("密碼", type="password")
+                    # 使用 use_container_width讓按鈕變寬，更好按
                     submitted = st.form_submit_button("登入", use_container_width=True)
                     
                     if submitted:
-                        success, result = login(input_email, input_pass)
-                        if success:
-                            st.session_state.logged_in = True
-                            st.session_state.user_email = input_email
-                            st.session_state.real_name = result
-                            st.session_state.login_attempts = 0
-                            st.rerun()
-                        else:
-                            st.session_state.login_attempts += 1
-                            remaining = 3 - st.session_state.login_attempts
-                            st.error(f"{result} (剩餘嘗試次數: {remaining})")
+                        # === 🔥 關鍵修改：加入轉圈圈動畫 ===
+                        with st.spinner("正在驗證身分，請稍候..."):
+                            success, result = login(input_email, input_pass)
+                            if success:
+                                st.session_state.logged_in = True
+                                st.session_state.user_email = input_email
+                                st.session_state.real_name = result
+                                st.session_state.login_attempts = 0
+                                st.rerun()
+                            else:
+                                st.session_state.login_attempts += 1
+                                remaining = 3 - st.session_state.login_attempts
+                                st.error(f"{result} (剩餘嘗試次數: {remaining})")
             
             with tab2:
                 st.caption("系統將發送新密碼至您的 Email")
@@ -263,7 +265,7 @@ def main_app():
                     
                     if reset_submit:
                         if reset_email:
-                            with st.spinner("處理中..."):
+                            with st.spinner("系統處理中，請稍候..."): # 這裡也加一個比較保險
                                 success, msg = reset_password_flow(reset_email)
                                 if success:
                                     st.success(msg)
@@ -321,17 +323,13 @@ def main_app():
 
             st.info(f"搜尋結果：共 {len(final_df)} 筆")
             
-            # 樣式優化區
             styler = final_df.style.format("{:,.0f}", subset=['牌價', '經銷價'], na_rep="")
-            # 字體加大到 18px
             styler = styler.set_properties(**{'font-size': '18px'})
-            # 價格靠右
             styler = styler.set_properties(subset=['牌價', '經銷價'], **{'text-align': 'right'})
             
             if '訂購品(V)' in final_df.columns:
                 styler = styler.set_properties(subset=['訂購品(V)'], **{'text-align': 'center'})
 
-            # 標頭強制置中
             styler = styler.set_table_styles([
                 {'selector': 'th', 'props': [('text-align', 'center')]}
             ])
