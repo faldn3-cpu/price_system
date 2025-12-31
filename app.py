@@ -12,13 +12,13 @@ import string
 import time
 from datetime import datetime, timezone, timedelta
 
-# === 1. 頁面設定 (更新標題) ===
-st.set_page_config(page_title="士林電機 FA 2026年經銷牌價查詢系統", layout="wide")
+# === 1. 頁面設定 (更新：瀏覽器標籤名稱) ===
+st.set_page_config(page_title="士電牌價查詢系統", layout="wide")
 
-# === CSS: 隱藏開發者痕跡 + 表格樣式優化 ===
+# === CSS: 介面優化 (加大字體 + 標題置中) ===
 st.markdown("""
 <style>
-/* 隱藏 Streamlit 預設介面 */
+/* 隱藏預設選單與頁尾 */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
@@ -27,6 +27,11 @@ header {visibility: hidden;}
 /* 強制表格標頭 (Header) 置中 */
 th {
     text-align: center !important;
+}
+
+/* 調整搜尋框的大小與字體 */
+input[type="text"] {
+    font-size: 1.2rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -69,14 +74,11 @@ def get_client():
         return None
 
 # === 資安與工具函式 ===
-
 def get_tw_time():
-    """取得台灣目前時間字串"""
     tw_tz = timezone(timedelta(hours=8))
     return datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
 
 def write_log(action, user_email, note=""):
-    """寫入操作軌跡到 Logs 分頁"""
     client = get_client()
     if not client: return
     try:
@@ -90,7 +92,6 @@ def write_log(action, user_email, note=""):
         pass
 
 def get_greeting():
-    """暖心問候語"""
     tw_tz = timezone(timedelta(hours=8))
     current_hour = datetime.now(tw_tz).hour
     if 5 <= current_hour < 11:
@@ -219,16 +220,15 @@ def clean_currency(val):
     except ValueError: return None
 
 # ==========================================
-#               主程式 (Main App)
+#               主程式
 # ==========================================
 def main_app():
-    # --- 1. 登入畫面 ---
     if not st.session_state.logged_in:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown("<br><br>", unsafe_allow_html=True)
-            # [更新] 標題
-            st.header("🔒 士林電機 FA 2026年經銷牌價查詢系統")
+            # 這裡顯示在頁面中間的大標題
+            st.header("🔒 士林電機FA 2026年經銷牌價查詢系統")
             
             if st.session_state.login_attempts >= 3:
                 st.error("⚠️ 登入失敗次數過多，請重新整理網頁後再試。")
@@ -273,7 +273,7 @@ def main_app():
                             st.warning("請輸入 Email")
         return
 
-    # --- 2. 側邊欄 ---
+    # --- 側邊欄 ---
     with st.sidebar:
         greeting = get_greeting()
         st.write(f"👤 **{st.session_state.real_name}**，{greeting}")
@@ -296,9 +296,8 @@ def main_app():
             st.session_state.real_name = ""
             st.rerun()
 
-    # --- 3. 主查詢介面 ---
-    # [更新] 標題
-    st.title("🔍 士林電機 FA 2026年經銷牌價查詢系統")
+    # --- 主查詢介面 ---
+    st.title("🔍 士林電機FA 2026年經銷牌價查詢系統")
     st.markdown("---")
 
     df = load_data()
@@ -322,21 +321,17 @@ def main_app():
 
             st.info(f"搜尋結果：共 {len(final_df)} 筆")
             
-            # === [更新] 表格樣式設定 ===
-            # 1. 格式化數字
+            # 樣式優化區
             styler = final_df.style.format("{:,.0f}", subset=['牌價', '經銷價'], na_rep="")
-            
-            # 2. 設定全表字型大小 (加大 2pt，約 18px)
+            # 字體加大到 18px
             styler = styler.set_properties(**{'font-size': '18px'})
-            
-            # 3. 價格欄位靠右
+            # 價格靠右
             styler = styler.set_properties(subset=['牌價', '經銷價'], **{'text-align': 'right'})
             
-            # 4. [更新] 訂購品(V) 欄位 置中
             if '訂購品(V)' in final_df.columns:
                 styler = styler.set_properties(subset=['訂購品(V)'], **{'text-align': 'center'})
 
-            # 5. [更新] 標頭置中 (雖然CSS已設定，這裡再加一層保障)
+            # 標頭強制置中
             styler = styler.set_table_styles([
                 {'selector': 'th', 'props': [('text-align', 'center')]}
             ])
