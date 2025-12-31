@@ -10,26 +10,23 @@ from email.mime.text import MIMEText
 import random
 import string
 import time
+from datetime import datetime, timezone, timedelta
 
 # === 頁面設定 ===
 st.set_page_config(page_title="經銷牌價系統", layout="wide")
 
-# === CSS: 進階隱藏 (隱藏開發者選項與紅色錯誤細節) ===
+# === CSS: 隱藏開發者痕跡 ===
 st.markdown("""
 <style>
-/* 隱藏右上角漢堡選單 */
 #MainMenu {visibility: hidden;}
-/* 隱藏頁尾 */
 footer {visibility: hidden;}
-/* 隱藏標頭裝飾 */
 header {visibility: hidden;}
-/* 隱藏工具列 */
 [data-testid="stElementToolbar"] { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-#  🔐 雲端資安設定 (讀取 Secrets)
+#  🔐 雲端資安設定 & 全域變數
 # ==========================================
 if "email" in st.secrets:
     SMTP_EMAIL = st.secrets["email"]["smtp_email"]
@@ -42,30 +39,77 @@ GOOGLE_SHEET_NAME = '經銷牌價表_資料庫'
 SEARCH_COLS = ['NO.', '規格', '說明']
 DISPLAY_COLS = ['規格', '牌價', '經銷價', '說明', '訂購品(V)']
 
-# === Session State ===
+# === Session State 初始化 ===
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user_email' not in st.session_state:
     st.session_state.user_email = ""
 if 'real_name' not in st.session_state:
     st.session_state.real_name = ""
+# [新增] 暴力破解計數器
+if 'login_attempts' not in st.session_state:
+    st.session_state.login_attempts = 0
 
 # === 連線函式 ===
 def get_client():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    # 優先讀取雲端 Secrets
     if "gcp_service_account" in st.secrets:
         creds_dict = dict(st.secrets["gcp_service_account"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
-    # 本機備援
     elif os.path.exists('service_account.json'):
         creds = ServiceAccountCredentials.from_json_keyfile_name('service_account.json', scope)
         return gspread.authorize(creds)
     else:
         return None
 
-# === 加密與工具函式 ===
+# === [新增] 資安防護函式 ===
+
+def get_tw_time():
+    """取得台灣目前時間字串"""
+    tw_tz = timezone(timedelta(hours=8))
+    return datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
+
+def write_log(action, user_email, note=""):
+    """寫入操作軌跡到 Logs 分頁 (防範風險4)"""
+    client = get_client()
+    if not client: return
+    try:
+        sh = client.open(GOOGLE_SHEET_NAME)
+        # 嘗試取得 Logs 分頁，若無則跳過
+        try:
+            ws = sh.worksheet("Logs")
+        except:
+            return 
+        
+        # 寫入：時間, 使用者, 動作, 備註
+        ws.append_row([get_tw_time(), user_email, action, note])
+    except:
+        pass # 寫入 Log 失敗不應影響主程式運行
+
+def sanitize_input(text):
+    """防範公式注入 (防範風險5)"""
+    if not text: return ""
+    text = str(text)
+    # 如果開頭是特殊符號，強制加單引號變成純文字
+    if text.startswith(('=', '+', '-', '@')):
+        return "'" + text
+    return text
+
+def get_greeting():
+    """暖心問候語"""
+    tw_tz = timezone(timedelta(hours=8))
+    current_hour = datetime.now(tw_tz).hour
+    if 5 <= current_hour < 11:
+        return "早安 ☀️"
+    elif 11 <= current_hour < 18:
+        return "你好 👋"
+    elif 18 <= current_hour < 23:
+        return "晚安 🌙"
+    else:
+        return "夜深了，不要太累了 ☕"
+
+# === 核心加密工具 ===
 def check_password(plain_text, hashed_text):
     try:
         return bcrypt.checkpw(plain_text.encode('utf-8'), hashed_text.encode('utf-8'))
@@ -81,26 +125,21 @@ def generate_random_password(length=8):
 # === 寄信函式 ===
 def send_reset_email(to_email, new_password):
     if not SMTP_EMAIL or not SMTP_PASSWORD: 
-        return False, "系統未設定寄信信箱，請聯繫管理員。"
+        return False, "系統未設定寄信信箱。"
         
     subject = "【經銷牌價系統】密碼重置通知"
     body = f"""
     您好：
-    
     您的系統密碼已重置。
-    
     新密碼為：{new_password}
-    
     請使用此密碼登入後，盡快修改為您習慣的密碼。
     """
-    
     msg = MIMEText(body)
     msg['Subject'] = subject
     msg['From'] = SMTP_EMAIL
     msg['To'] = to_email
 
     try:
-        # 使用 587 Port (TLS)
         with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
             smtp.ehlo()
             smtp.starttls()
@@ -108,12 +147,12 @@ def send_reset_email(to_email, new_password):
             smtp.send_message(msg)
         return True, "信件發送成功"
     except Exception as e:
-        return False, "寄信失敗，請稍後再試或聯繫管理員。"
+        return False, "寄信失敗，請稍後再試。"
 
 # === 業務邏輯 ===
 def login(email, password):
     client = get_client()
-    if not client: return False, "系統連線失敗"
+    if not client: return False, "連線失敗"
     try:
         sh = client.open(GOOGLE_SHEET_NAME)
         ws = sh.worksheet("Users")
@@ -123,12 +162,18 @@ def login(email, password):
             if str(user.get('email')).strip() == email.strip():
                 if check_password(password, str(user.get('password'))):
                     found_name = str(user.get('name')) if user.get('name') else email
+                    # [紀錄] 登入成功 Log
+                    write_log("登入成功", email)
                     return True, found_name
                 else:
+                    # [紀錄] 登入失敗 Log (密碼錯誤)
+                    write_log("登入失敗", email, "密碼錯誤")
                     return False, "密碼錯誤"
+        
+        write_log("登入失敗", email, "帳號不存在")
         return False, "此 Email 尚未註冊"
     except Exception as e:
-        return False, "登入過程發生錯誤"
+        return False, "登入過程錯誤"
 
 def change_password(email, new_password):
     client = get_client()
@@ -138,7 +183,11 @@ def change_password(email, new_password):
         ws = sh.worksheet("Users")
         cell = ws.find(email)
         if cell:
-            ws.update_cell(cell.row, 2, hash_password(new_password))
+            # 這裡因為用了 hash，已經防禦了注入，但習慣上還是可以做 sanitize
+            safe_pwd = hash_password(new_password)
+            ws.update_cell(cell.row, 2, safe_pwd)
+            # [紀錄] 修改密碼 Log
+            write_log("修改密碼", email, "使用者自行修改")
             return True
         return False
     except: return False
@@ -160,9 +209,11 @@ def reset_password_flow(target_email):
             return False, msg
             
         ws.update_cell(cell.row, 2, hash_password(new_pw))
+        # [紀錄] 重置密碼 Log
+        write_log("重置密碼", target_email, "忘記密碼重置")
         return True, "重置成功！新密碼已寄送到您的信箱。"
     except Exception as e:
-        return False, "重置失敗，請稍後再試"
+        return False, "重置失敗"
 
 @st.cache_data(ttl=600)
 def load_data():
@@ -182,7 +233,7 @@ def clean_currency(val):
     except ValueError: return None
 
 # ==========================================
-#               主程式 (包在 main 裡)
+#               主程式 (Main App)
 # ==========================================
 def main_app():
     # --- 1. 登入畫面 ---
@@ -192,6 +243,11 @@ def main_app():
             st.markdown("<br><br>", unsafe_allow_html=True)
             st.header("🔒 經銷牌價系統")
             
+            # [防護] 暴力破解檢查
+            if st.session_state.login_attempts >= 3:
+                st.error("⚠️ 登入失敗次數過多，請重新整理網頁後再試。")
+                return # 鎖定畫面，不顯示登入框
+
             tab1, tab2 = st.tabs(["會員登入", "忘記密碼"])
             
             with tab1:
@@ -206,9 +262,13 @@ def main_app():
                             st.session_state.logged_in = True
                             st.session_state.user_email = input_email
                             st.session_state.real_name = result
+                            st.session_state.login_attempts = 0 # 登入成功，歸零計數器
                             st.rerun()
                         else:
-                            st.error(result)
+                            # [防護] 增加錯誤次數
+                            st.session_state.login_attempts += 1
+                            remaining = 3 - st.session_state.login_attempts
+                            st.error(f"{result} (剩餘嘗試次數: {remaining})")
             
             with tab2:
                 st.caption("系統將發送新密碼至您的 Email")
@@ -226,11 +286,13 @@ def main_app():
                                     st.error(msg)
                         else:
                             st.warning("請輸入 Email")
-        return # 停止執行後續
+        return
 
     # --- 2. 側邊欄 ---
     with st.sidebar:
-        st.write(f"👤 **{st.session_state.real_name}**")
+        # [暖心功能] 顯示問候語
+        greeting = get_greeting()
+        st.write(f"👤 **{st.session_state.real_name}**，{greeting}")
         
         with st.expander("🔑 修改密碼"):
             new_pwd = st.text_input("新密碼", type="password")
@@ -269,39 +331,25 @@ def main_app():
         
         if not display_df.empty and final_cols:
             final_df = display_df[final_cols].copy()
-            
             for col in ['牌價', '經銷價']:
                 if col in final_df.columns:
                     final_df[col] = final_df[col].apply(clean_currency)
 
             st.info(f"搜尋結果：共 {len(final_df)} 筆")
-
             styler = final_df.style.format("{:,.0f}", subset=['牌價', '經銷價'], na_rep="")
             styler = styler.set_properties(subset=['牌價', '經銷價'], **{'text-align': 'right'})
-            
             if '訂購品(V)' in final_df.columns:
                 styler = styler.set_properties(subset=['訂購品(V)'], **{'text-align': 'center'})
 
-            st.dataframe(
-                styler,
-                use_container_width=True,
-                hide_index=True,
-                height=600
-            )
+            st.dataframe(styler, use_container_width=True, hide_index=True, height=600)
         else:
             if search_term:
                 st.warning("查無資料")
     else:
         st.error("資料庫連線異常，請稍後再試。")
 
-# ==========================================
-#  🛡️ 全域防護罩 (進入點)
-# ==========================================
 if __name__ == "__main__":
     try:
         main_app()
     except Exception as e:
-        # 當發生未知錯誤時，只顯示這行，不顯示程式碼
         st.error("系統暫時忙碌中，請重新整理或聯繫管理員。")
-        # 如果您自己在後台看，可以把 e 印出來 debug，但網頁上不顯示
-        print(f"Error: {e}")
