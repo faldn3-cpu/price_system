@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 # === 1. 頁面設定 (更新標題) ===
-st.set_page_config(page_title="士林電機FA 2026年經銷牌價查詢系統", layout="wide")
+st.set_page_config(page_title="士林電機 FA 2026年經銷牌價查詢系統", layout="wide")
 
 # === CSS: 隱藏開發者痕跡 + 表格樣式優化 ===
 st.markdown("""
@@ -228,7 +228,7 @@ def main_app():
         with col2:
             st.markdown("<br><br>", unsafe_allow_html=True)
             # [更新] 標題
-            st.header("🔒 士林電機FA 2026年經銷牌價查詢系統")
+            st.header("🔒 士林電機 FA 2026年經銷牌價查詢系統")
             
             if st.session_state.login_attempts >= 3:
                 st.error("⚠️ 登入失敗次數過多，請重新整理網頁後再試。")
@@ -298,7 +298,7 @@ def main_app():
 
     # --- 3. 主查詢介面 ---
     # [更新] 標題
-    st.title("🔍 士林電機FA 2026年經銷牌價查詢系統")
+    st.title("🔍 士林電機 FA 2026年經銷牌價查詢系統")
     st.markdown("---")
 
     df = load_data()
