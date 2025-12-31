@@ -12,16 +12,22 @@ import string
 import time
 from datetime import datetime, timezone, timedelta
 
-# === 頁面設定 ===
-st.set_page_config(page_title="經銷牌價系統", layout="wide")
+# === 1. 頁面設定 (更新標題) ===
+st.set_page_config(page_title="士林電機FA 2026年經銷牌價查詢系統", layout="wide")
 
-# === CSS: 隱藏開發者痕跡 ===
+# === CSS: 隱藏開發者痕跡 + 表格樣式優化 ===
 st.markdown("""
 <style>
+/* 隱藏 Streamlit 預設介面 */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
 [data-testid="stElementToolbar"] { display: none; }
+
+/* 強制表格標頭 (Header) 置中 */
+th {
+    text-align: center !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -46,7 +52,6 @@ if 'user_email' not in st.session_state:
     st.session_state.user_email = ""
 if 'real_name' not in st.session_state:
     st.session_state.real_name = ""
-# [新增] 暴力破解計數器
 if 'login_attempts' not in st.session_state:
     st.session_state.login_attempts = 0
 
@@ -63,7 +68,7 @@ def get_client():
     else:
         return None
 
-# === [新增] 資安防護函式 ===
+# === 資安與工具函式 ===
 
 def get_tw_time():
     """取得台灣目前時間字串"""
@@ -71,30 +76,18 @@ def get_tw_time():
     return datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
 
 def write_log(action, user_email, note=""):
-    """寫入操作軌跡到 Logs 分頁 (防範風險4)"""
+    """寫入操作軌跡到 Logs 分頁"""
     client = get_client()
     if not client: return
     try:
         sh = client.open(GOOGLE_SHEET_NAME)
-        # 嘗試取得 Logs 分頁，若無則跳過
         try:
             ws = sh.worksheet("Logs")
         except:
             return 
-        
-        # 寫入：時間, 使用者, 動作, 備註
         ws.append_row([get_tw_time(), user_email, action, note])
     except:
-        pass # 寫入 Log 失敗不應影響主程式運行
-
-def sanitize_input(text):
-    """防範公式注入 (防範風險5)"""
-    if not text: return ""
-    text = str(text)
-    # 如果開頭是特殊符號，強制加單引號變成純文字
-    if text.startswith(('=', '+', '-', '@')):
-        return "'" + text
-    return text
+        pass
 
 def get_greeting():
     """暖心問候語"""
@@ -109,7 +102,6 @@ def get_greeting():
     else:
         return "夜深了，不要太累了 ☕"
 
-# === 核心加密工具 ===
 def check_password(plain_text, hashed_text):
     try:
         return bcrypt.checkpw(plain_text.encode('utf-8'), hashed_text.encode('utf-8'))
@@ -122,12 +114,11 @@ def generate_random_password(length=8):
     chars = string.ascii_letters + string.digits
     return ''.join(random.choice(chars) for i in range(length))
 
-# === 寄信函式 ===
 def send_reset_email(to_email, new_password):
     if not SMTP_EMAIL or not SMTP_PASSWORD: 
         return False, "系統未設定寄信信箱。"
         
-    subject = "【經銷牌價系統】密碼重置通知"
+    subject = "【士林電機FA】密碼重置通知"
     body = f"""
     您好：
     您的系統密碼已重置。
@@ -162,11 +153,9 @@ def login(email, password):
             if str(user.get('email')).strip() == email.strip():
                 if check_password(password, str(user.get('password'))):
                     found_name = str(user.get('name')) if user.get('name') else email
-                    # [紀錄] 登入成功 Log
                     write_log("登入成功", email)
                     return True, found_name
                 else:
-                    # [紀錄] 登入失敗 Log (密碼錯誤)
                     write_log("登入失敗", email, "密碼錯誤")
                     return False, "密碼錯誤"
         
@@ -183,10 +172,8 @@ def change_password(email, new_password):
         ws = sh.worksheet("Users")
         cell = ws.find(email)
         if cell:
-            # 這裡因為用了 hash，已經防禦了注入，但習慣上還是可以做 sanitize
             safe_pwd = hash_password(new_password)
             ws.update_cell(cell.row, 2, safe_pwd)
-            # [紀錄] 修改密碼 Log
             write_log("修改密碼", email, "使用者自行修改")
             return True
         return False
@@ -209,7 +196,6 @@ def reset_password_flow(target_email):
             return False, msg
             
         ws.update_cell(cell.row, 2, hash_password(new_pw))
-        # [紀錄] 重置密碼 Log
         write_log("重置密碼", target_email, "忘記密碼重置")
         return True, "重置成功！新密碼已寄送到您的信箱。"
     except Exception as e:
@@ -241,12 +227,12 @@ def main_app():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown("<br><br>", unsafe_allow_html=True)
-            st.header("🔒 經銷牌價系統")
+            # [更新] 標題
+            st.header("🔒 士林電機FA 2026年經銷牌價查詢系統")
             
-            # [防護] 暴力破解檢查
             if st.session_state.login_attempts >= 3:
                 st.error("⚠️ 登入失敗次數過多，請重新整理網頁後再試。")
-                return # 鎖定畫面，不顯示登入框
+                return
 
             tab1, tab2 = st.tabs(["會員登入", "忘記密碼"])
             
@@ -262,10 +248,9 @@ def main_app():
                             st.session_state.logged_in = True
                             st.session_state.user_email = input_email
                             st.session_state.real_name = result
-                            st.session_state.login_attempts = 0 # 登入成功，歸零計數器
+                            st.session_state.login_attempts = 0
                             st.rerun()
                         else:
-                            # [防護] 增加錯誤次數
                             st.session_state.login_attempts += 1
                             remaining = 3 - st.session_state.login_attempts
                             st.error(f"{result} (剩餘嘗試次數: {remaining})")
@@ -290,7 +275,6 @@ def main_app():
 
     # --- 2. 側邊欄 ---
     with st.sidebar:
-        # [暖心功能] 顯示問候語
         greeting = get_greeting()
         st.write(f"👤 **{st.session_state.real_name}**，{greeting}")
         
@@ -313,7 +297,8 @@ def main_app():
             st.rerun()
 
     # --- 3. 主查詢介面 ---
-    st.title("🔍 經銷牌價查詢系統")
+    # [更新] 標題
+    st.title("🔍 士林電機FA 2026年經銷牌價查詢系統")
     st.markdown("---")
 
     df = load_data()
@@ -336,10 +321,25 @@ def main_app():
                     final_df[col] = final_df[col].apply(clean_currency)
 
             st.info(f"搜尋結果：共 {len(final_df)} 筆")
+            
+            # === [更新] 表格樣式設定 ===
+            # 1. 格式化數字
             styler = final_df.style.format("{:,.0f}", subset=['牌價', '經銷價'], na_rep="")
+            
+            # 2. 設定全表字型大小 (加大 2pt，約 18px)
+            styler = styler.set_properties(**{'font-size': '18px'})
+            
+            # 3. 價格欄位靠右
             styler = styler.set_properties(subset=['牌價', '經銷價'], **{'text-align': 'right'})
+            
+            # 4. [更新] 訂購品(V) 欄位 置中
             if '訂購品(V)' in final_df.columns:
                 styler = styler.set_properties(subset=['訂購品(V)'], **{'text-align': 'center'})
+
+            # 5. [更新] 標頭置中 (雖然CSS已設定，這裡再加一層保障)
+            styler = styler.set_table_styles([
+                {'selector': 'th', 'props': [('text-align', 'center')]}
+            ])
 
             st.dataframe(styler, use_container_width=True, hide_index=True, height=600)
         else:
